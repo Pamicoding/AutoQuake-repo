@@ -1,7 +1,7 @@
 {
     "station_path": "/home/patrick/Work/AutoQuake-repo/station.csv",
     "name_of_eq_sequence": "Hualien0403",
-    "analyze_range": "20231230-20240102",
+    "analyze_range": "20240402-20240403",
     "waveform_dir": "/home/patrick/Work/AutoQuake-repo/test_data",
     "pz_dir": "/data/share/for_patrick/PZ_test/",
     "association_method": "gamma"
