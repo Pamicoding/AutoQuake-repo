@@ -1,3 +1,4 @@
+import subprocess
 from core.initializer import Initializer
 
 class H3dd(Initializer):
@@ -38,3 +39,7 @@ class H3dd(Initializer):
             f.write("    0\n")
     def count_for_h3dd_files(self):
         return len(list(self.for_h3dd_dir.glob(f"*gamma_new*")))
+    def run_h3dd(self):
+        with open(self.current_dir / 'h3dd.inp', 'r') as file:
+            subprocess.run(['./h3dd'], stdin=file, text=True, capture_output=True)
+    
