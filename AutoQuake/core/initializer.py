@@ -6,12 +6,14 @@ import logging
 import multiprocessing as mp
 from obspy import read
 from obspy.core.stream import Stream
+import seisbench.models as sbm
+import torch
 from core.utils import date_range, get_sta_list
 
 def equip_filter(args):
     day, station_list, output_base_dir, data_path = args
-    logging.basicConfig(filename=output_base_dir / day / 'log' / f'data_single.log', level=logging.INFO, filemode='a')
-    process_dir_path = output_base_dir / day / 'data' / 'data_single'
+    logging.basicConfig(filename=output_base_dir / 'log' / f'data_single.log', level=logging.INFO, filemode='a')
+    process_dir_path = output_base_dir /'data' / day / 'data_single'
     process_dir_path.mkdir(parents=True, exist_ok=True)
     for sta in station_list:
         logging.info(f"We are in {sta}")
@@ -102,9 +104,9 @@ def equip_filter(args):
 
 def merging(args):
     date, station_list, output_base_dir = args
-    logging.basicConfig(filename=output_base_dir / date / 'log' / f'data_final.log', level=logging.INFO, filemode='a')
-    ori_data_dir = output_base_dir / date / 'data' / 'data_single' 
-    output_data_dir = output_base_dir / date / 'data' / 'data_final'
+    logging.basicConfig(filename=output_base_dir / 'log' / f'data_final.log', level=logging.INFO, filemode='a')
+    ori_data_dir = output_base_dir / 'data' / date / 'data_single' 
+    output_data_dir = output_base_dir / 'data' / date / 'data_final'
     output_data_dir.mkdir(parents=True, exist_ok=True)
     for station in station_list:
         logging.info(f'we are in {station} now!')
@@ -146,7 +148,14 @@ def merging(args):
                     logging.info('only U')
                     st_ori = read(num_file[0])
                     st_ori.write(os.path.join(output_data_dir, os.path.basename(num_file[0])),format='SAC')
-
+def add(args):
+    output_base_dir, date = args
+    stream_path = os.listdir(output_base_dir / date / 'data' / 'data_single')
+    stream_add = Stream()
+    for sp in sorted(stream_path):
+        st = read(sp)
+        stream_add += st
+        
 class Initializer:
     def __init__(self, config):
         self.config = config
@@ -155,40 +164,48 @@ class Initializer:
         self.output_base_dir = self.current_dir / "output" / config['name_of_eq_sequence']
         self.date_list = date_range(config["analyze_range"].split('-')[0], config["analyze_range"].split('-')[1])
         self.station_path = config['station_path']
+        self.vel_model_1d = config['1D_velocity_model']
+        self.vel_model_3d = config['3D_velocity_model']
         if not config.get("pz_dir"):
             self.mag_run = False
         else:
             self.pz_path = config["pz_dir"]
             self.mag_run = True
-        self.aso_method = config['association_method']
+        
     def create_directory_structure(self):
         """
         Create the required directory structure based on the configuration.
         """
         self.output_base_dir.mkdir(parents=True, exist_ok=True)
-        
+        (self.output_base_dir / "log").mkdir(parents=True, exist_ok=True)
+        (self.output_base_dir / "data").mkdir(parents=True, exist_ok=True)
+        #(self.output_base_dir / "phasenet").mkdir(parents=True, exist_ok=True)
+        (self.output_base_dir / "h3dd").mkdir(parents=True, exist_ok=True)
+        (self.output_base_dir / "Magnitude").mkdir(parents=True, exist_ok=True)
+        (self.output_base_dir / "Focal").mkdir(parents=True, exist_ok=True)
+        (self.output_base_dir / "GaMMA").mkdir(parents=True, exist_ok=True)
+        (self.output_base_dir / "Catelog").mkdir(parents=True, exist_ok=True)
         # Create directories for each date in the range
         for date in self.date_list:
-            date_dir = self.output_base_dir / date
+            date_dir = self.output_base_dir / "data" / date
             date_dir.mkdir(parents=True, exist_ok=True)
-            (date_dir / "log").mkdir(parents=True, exist_ok=True)
-            (date_dir / "data").mkdir(parents=True, exist_ok=True)
-            (date_dir / "phasenet").mkdir(parents=True, exist_ok=True)
-            (date_dir / "h3dd").mkdir(parents=True, exist_ok=True)
-            (date_dir / "Magnitude").mkdir(parents=True, exist_ok=True)
-            (date_dir / "Focal").mkdir(parents=True, exist_ok=True)
 
-            if self.config["association_method"] == "gamma":
-                (date_dir / "GaMMA").mkdir(parents=True, exist_ok=True)
-            elif self.config["association_method"] == "assoloc":
-                (date_dir / "AssoLoc").mkdir(parents=True, exist_ok=True)
         
         # Copy stations.csv to the base output directory
         station_path = Path(self.config["station_path"])
         shutil.copy(station_path, self.output_base_dir / "stations.csv")
         
-        # Create the 'Catelog' directory
-        (self.output_base_dir / "Catelog").mkdir(parents=True, exist_ok=True)
+        # generate station format for h3dd
+        with open(self.station_path, 'r') as r:
+            with open(self.output_base_dir / 'h3dd_station_format', 'w') as output:
+                lines = r.readlines()
+                for line in lines:
+                    if line[:3] == 'net':
+                        continue
+                    else:
+                        parts = line.strip().split(',')
+                        new_line = f"{parts[1]} {parts[2]} {parts[3]} {parts[4]} 19010101 21001231\n"
+                        output.write(new_line)
     def filter_single_equip(self):
         days = self.date_list
         station_list = get_sta_list(self.station_path)
@@ -203,6 +220,21 @@ class Initializer:
         cores = min(len(days), 10)
         with mp.Pool(processes=cores) as pool:
             pool.map(merging, args)   
+    def run_phasenet(self):
+        days = self.date_list
+        stream_add = Stream()
+        for day in days:
+            stream_path = list((self.output_base_dir / 'data' / day / 'data_single').glob('*'))
+            for sp in sorted(stream_path):
+                st = read(sp)
+                stream_add += st
+        picker = sbm.PhaseNet.from_pretrained("original")
+        if torch.cuda.is_available():
+            picker.cuda()
+        picks = picker.classify(stream_add, batch_size=256).picks
+        #picks = picker.classify(stream_add, batch_size=256, P_threshold=0.075, S_threshold=0.1).picks
+        return picks
+    '''
     def get_materials(self):
         parent_dir = str(self.output_base_dir)
         station_path = self.station_path 
@@ -214,3 +246,4 @@ class Initializer:
             pz_dir = ""
         aso_method = self.aso_method
         return parent_dir, station_path, date_list, mag_run, pz_dir, aso_method
+    '''
