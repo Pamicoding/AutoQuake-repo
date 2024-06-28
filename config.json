@@ -4,6 +4,7 @@
     "analyze_range": "20240402-20240403",
     "waveform_dir": "/home/patrick/Work/AutoQuake-repo/test_data",
     "pz_dir": "/data/share/for_patrick/PZ_test/",
-    "association_method": "gamma"
+    "1D_velocity_model": "/home/patrick/Work/AutoQuake/GaMMA/Hualien_data/Hualien_1D.vel",
+    "3D_velocity_model": "/home/patrick/Work/AutoQuake/Reloc2/tomops_H14"
   }
   
